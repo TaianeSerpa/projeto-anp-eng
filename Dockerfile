@@ -1,17 +1,39 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
+
+# logs
+ENV PYTHONUNBUFFERED=1 
 
 # Evita arquivos .pyc
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Diretório de trabalho
 WORKDIR /app
 
-# Instala dependências
-RUN pip install --no-cache-dir -r requirements.txt
+# Criar ambiente virtual
+RUN python -m venv /opt/venv
 
-# Copia o projeto
-COPY ./app /app
+# Ativar venv no PATH
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Comando padrão
+# Copiar dependências (não tem ainda)
+# COPY requirements.txt .
+
+# Instalar dependências (não tem ainda)
+# RUN pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Copia o venv pronto
+COPY --from=builder /opt/venv /opt/venv
+# Ativa o venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Logs
+ENV PYTHONUNBUFFERED=1
+
+COPY . .
+
+# Comandos
 CMD ["python", "extract.py"]
