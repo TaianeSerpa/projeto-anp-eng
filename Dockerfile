@@ -9,6 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Diretório de trabalho
 WORKDIR /app
 
+# Ataulização e instalação de bibliotecas 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Criar ambiente virtual
 RUN python -m venv /opt/venv
 
