@@ -1,4 +1,6 @@
 .venv
+.env
 
-config/.env
+# pastas
 dados_anp
+notebooks
