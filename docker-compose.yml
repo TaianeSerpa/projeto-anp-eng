@@ -1,14 +1,10 @@
 services:
-
   minio:
     image: minio/minio:latest
     container_name: minio_datalake
     ports:
       - "9000:9000"
-      # --- ALTERAÇÃO AQUI ---
-      # Mapeia a porta 9001 interna para a 8081 externa.
       - "8081:9001"
-      # --- FIM DA ALTERAÇÃO ---
     volumes:
       - minio_data:/data
     environment:
@@ -16,5 +12,15 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
 
+  app: 
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - minio 
+    volumes:
+      - app_data:/app/dados_anp
+
 volumes:
   minio_data:
+  app_data:
