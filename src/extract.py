@@ -1,5 +1,6 @@
 import requests
 import os
+import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -10,7 +11,6 @@ load_dotenv(dotenv_path=env_path)
 
 url_pagina = os.getenv("URL")
 Lista_ano = ["2020","2021","2022","2023","2024","2025"]
-
 
 def conect_minio():
     os.makedirs("dados_anp/bronze" ,exist_ok=True)
@@ -54,11 +54,32 @@ def baixar_e_subir_arquivo(links_csv,bucket_nome,client):
             conteudo = requests.get(url, verify=False).content
             with open(caminho_final,"wb") as f:
                 f.write(conteudo)
-            print(f"Subindo para o {nome_arquivo} para o Minio.")
-            client.fput_object(
-                bucket_nome,
-                nome_arquivo,
-                caminho_final)
+            if nome_arquivo.endswith('.zip'):
+                print(f"Descompactando arquivo zip:{nome_arquivo}")
+
+                pasta_destino = 'dados_anp/bronze'
+                with zipfile.ZipFile(caminho_final,'r') as zip_referencia:
+                    arquivo_extraido = zip_referencia.namelist()
+                    zip_referencia.extractall(pasta_destino)
+                
+                for arquivo_csv in arquivo_extraido:
+                    caminho_csv_extraido = os.path.join(pasta_destino, arquivo_csv)
+
+                    print(f"Subindo {arquivo_csv} para o MinIO")
+                    client.fput_object(
+                        bucket_nome,
+                        f"bronze/{arquivo_csv}",
+                        caminho_csv_extraido)
+                    
+                os.remove(caminho_final)
+                print(f"Arquivo zip {nome_arquivo} removido da máquina local.")
+                    
+            else:
+                print(f"Subindo {nome_arquivo} para o Minio.")
+                client.fput_object(
+                    bucket_nome,
+                    f"bronze/{nome_arquivo}",
+                    caminho_final)
 
         except Exception as e:
             print(f"Erro ao fazer o download {nome_arquivo}: {e}")
