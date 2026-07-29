@@ -3,7 +3,7 @@ services:
     image: minio/minio:latest
     container_name: minio_datalake
     ports:
-      - "9000:9000"
+      - "9005:9000"
       - "8081:9001"
     volumes:
       - minio_data:/data

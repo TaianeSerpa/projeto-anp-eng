@@ -29,4 +29,4 @@ ENV PYTHONUNBUFFERED=1
 
 COPY . .
 
-CMD ["python3", "src/extract.py"]
+CMD ["python3"]

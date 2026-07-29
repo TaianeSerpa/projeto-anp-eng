@@ -10,12 +10,12 @@ env_path= Path(__file__).parent.parent/'.env'
 load_dotenv(dotenv_path=env_path)
 
 url_pagina = os.getenv("URL")
-Lista_ano = ["2020","2021","2022","2023","2024","2025"]
+Lista_ano = ["2020","2021","2022","2022.1","2023","2024","2025"]
 
 def conect_minio():
     os.makedirs("dados_anp/bronze" ,exist_ok=True)
     client = Minio(
-        'localhost:9000',
+        'localhost:9005',
         access_key= os.getenv("MINIO_ROOT_USER"),
         secret_key= os.getenv("MINIO_ROOT_PASSWORD"),
         secure= False)
@@ -37,9 +37,13 @@ def busca_link_anp(url_pagina, Lista_ano):
         url = link['href']
         if url.endswith(('.csv', '.zip')):
             if "/ca" in url:
-                if any( ano in url for ano in Lista_ano ):
+                tem_ano = any(ano in url for ano in Lista_ano)
+
+                arquivo_2022 = ("precos-semestrais-ca" in url.lower())
+                if tem_ano or arquivo_2022:
                     links_csv.append(url)
-        
+    links_csv = list(set(links_csv))
+    
     print(f"Encontrados {len(links_csv)} arquivos para Download.")
     return links_csv
 
