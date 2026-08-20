@@ -12,15 +12,44 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
 
+  postgres:
+    image: postgres:16
+    container_name: postgres_db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=anp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    ports:
+      - "8082:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
   app: 
     build:
       context: .
       dockerfile: Dockerfile
     depends_on:
       - minio 
+      - postgres
     volumes:
       - app_data:/app/dados_anp
 
+
 volumes:
   minio_data:
+  postgres_data:
+  pgadmin_data:
   app_data:
