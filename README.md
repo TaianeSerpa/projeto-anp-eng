@@ -57,6 +57,59 @@ flowchart TD
 
 - **Storage & Banco de Dados**: MinIO (Object Storage S3-compatible), PostgreSQL.
 
-- **Infraestrutura**: Docker e Docker Compose.
+- **Infraestrutura**: Docker.
 
-- **Controle de Versão**: Git / GitHub seguindo Gitflow e Conventional Commits.
+- **Controle de Versão**: Gitflow e Conventional Commits.
+# Estrutura do Repositório
+```text
+projeto-anp-eng/
+├── .env.example
+├── docker-compose.yml
+├── requirements.txt
+├── main.py
+├── sql/
+│   └── create_table.sql
+└── src/
+    ├── __init__.py
+    ├── extract.py
+    ├── transform.py
+    └── load.py
+```
+
+## Como Executar o Projeto Localmente
+
+### 1. Pré-requisitos
+* **Docker** instalado
+* **Python 3.10+** (ou ambiente virtual configurado)
+
+### 2. Configurar Variáveis de Ambiente
+Crie o arquivo `.env` a partir do modelo de exemplo:
+
+```bash
+cp .env.example .env
+```
+
+### 3. Iniciar Serviços de Infraestrutura (MinIO & PostgreSQL)
+Suba os contêineres em segundo plano:
+
+```bash
+docker-compose up -d
+```
+
+### 4. Configurar o Ambiente Python
+Crie e ative a virtualenv, em seguida instale as dependências:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Linux/WSL/macOS
+# .venv\Scripts\activate   # Windows PowerShell
+
+pip install -r requirements.txt
+```
+
+### 5. Executar a Pipeline End-to-End
+Rode o script principal para executar todo o fluxo Bronze ➔ Silver ➔ Gold:
+
+```bash
+python main.py
+```
