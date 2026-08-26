@@ -1,3 +1,4 @@
+import logging
 import requests
 import os
 import zipfile
@@ -5,6 +6,12 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from minio import Minio
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
 
 env_path= Path(__file__).parent.parent/'.env'
 load_dotenv(dotenv_path=env_path)
@@ -23,10 +30,11 @@ def conect_minio():
     bucket_nome = 'dados-anp'.strip()
     if not client.bucket_exists(bucket_nome):
         client.make_bucket(bucket_nome, location="us-east-1")
+        logging.info(f"Bucket '{bucket_nome}' criado com sucesso.")
     return client, bucket_nome
 
 def busca_link_anp(url_pagina, Lista_ano):
-    print("Inicando o processo de Extract...")
+    logging.info('Buscando links no portal da ANP...')
 
     reposta = requests.get(url_pagina,verify=False)
     soup = BeautifulSoup(reposta.text, 'html.parser')
@@ -44,7 +52,7 @@ def busca_link_anp(url_pagina, Lista_ano):
                     links_csv.append(url)
     links_csv = list(set(links_csv))
     
-    print(f"Encontrados {len(links_csv)} arquivos para Download.")
+    logging.info(f'Encontrados {len(links_csv)} arquivos para download.')
     return links_csv
 
 def baixar_e_subir_arquivo(links_csv,bucket_nome,client):
@@ -52,14 +60,15 @@ def baixar_e_subir_arquivo(links_csv,bucket_nome,client):
         nome_arquivo = url.split('/')[-1]
         caminho_final = os.path.join("dados_anp/bronze",nome_arquivo)
 
-        print(f"Iniciando Download:{nome_arquivo}")
+        logging.info(f'Iniciando download: {nome_arquivo}')
 
         try:
             conteudo = requests.get(url, verify=False).content
             with open(caminho_final,"wb") as f:
                 f.write(conteudo)
+                
             if nome_arquivo.endswith('.zip'):
-                print(f"Descompactando arquivo zip:{nome_arquivo}")
+                logging.info(f'Descompactando arquivo zip: {nome_arquivo}')
 
                 pasta_destino = 'dados_anp/bronze'
                 with zipfile.ZipFile(caminho_final,'r') as zip_referencia:
@@ -69,17 +78,18 @@ def baixar_e_subir_arquivo(links_csv,bucket_nome,client):
                 for arquivo_csv in arquivo_extraido:
                     caminho_csv_extraido = os.path.join(pasta_destino, arquivo_csv)
 
-                    print(f"Subindo {arquivo_csv} para o MinIO")
+                    logging.info(f'Subindo {arquivo_csv} para o MinIO (Bronze)')
                     client.fput_object(
                         bucket_nome,
                         f"bronze/{arquivo_csv}",
                         caminho_csv_extraido)
                     
                 os.remove(caminho_final)
-                print(f"Arquivo zip {nome_arquivo} removido da máquina local.")
+                logging.info(
+                    f'Arquivo zip local {nome_arquivo} removido após extração.')
                     
             else:
-                print(f"Subindo {nome_arquivo} para o Minio.")
+                logging.info(f'Subindo {nome_arquivo} para o MinIO (Bronze)')
                 client.fput_object(
                     bucket_nome,
                     f"bronze/{nome_arquivo}",
@@ -89,15 +99,19 @@ def baixar_e_subir_arquivo(links_csv,bucket_nome,client):
             print(f"Erro ao fazer o download {nome_arquivo}: {e}")
 
 
-if __name__ == "__main__":
-    minio_client,bucket = conect_minio()
+def pipeline_extract():
+    
+    logging.info('=== INICIANDO PIPELINE DE EXTRAÇÃO (BRONZE) ===')
 
+    minio_client, bucket = conect_minio()
     lista_de_links = busca_link_anp(url_pagina, Lista_ano)
+    baixar_e_subir_arquivo(lista_de_links, bucket, minio_client)
+    
+    logging.info('=== PIPELINE DE EXTRAÇÃO CONCLUÍDO COM SUCESSO ===')
 
-    baixar_e_subir_arquivo(lista_de_links,bucket,minio_client)
 
-print("\nConcluído!Todos os arquivos estão na pasta 'dados_anp'")
-
+if __name__ == '__main__':
+    pipeline_extract()
 
 
 

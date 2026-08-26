@@ -1,4 +1,5 @@
 import os
+import logging
 import io
 import pandas as pd
 from pathlib import Path
@@ -6,12 +7,19 @@ from dotenv import load_dotenv
 from minio import Minio
 from datetime import datetime
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
 env_path= Path(__file__).parent.parent/'.env'
 load_dotenv(dotenv_path=env_path)
 
 
 def conect_minio():
-    print("Iniciando a Conexão com o Minio.")
+    logger.info("Iniciando conexão com o MinIO...")
     client = Minio(
         'localhost:9005',
         access_key= os.getenv("MINIO_ROOT_USER"),
@@ -19,17 +27,22 @@ def conect_minio():
         secure= False,)
 
     bucket_nome = "dados-anp"
-    print("Buscando a lista de objetos dentro da pasta.")
-    object = list(client.list_objects(bucket_name=bucket_nome, recursive=True))
-    print(f"Foram encontrados {len(object)} arquivos na pasta Bronze.")
-    for obj in object:
-        print(obj.object_name)
+    logger.info(f"Buscando objetos no bucket '{bucket_nome}' (Camada Bronze)...")
+
+    object = list(client.list_objects(bucket_name=bucket_nome,prefix="bronze/", recursive=True))
+
+    logger.info(f"Total de {len(object)} arquivos encontrados na camada Bronze.")
     return client, object, bucket_nome
 
 def ler_csv(client,bucket_nome,lista_objetos):
+    logger.info("Iniciando leitura dos arquivos CSV...")
     lista_csv = []
 
+
     for obj in lista_objetos:
+        if not obj.object_name.endswith('.csv'):
+            continue
+        logger.info(f"Lendo objeto: {obj.object_name}")
         response = client.get_object(bucket_nome, obj.object_name)
 
         df_bruto = pd.read_csv(
@@ -37,10 +50,11 @@ def ler_csv(client,bucket_nome,lista_objetos):
 
         response.close()
         lista_csv.append(df_bruto)
+    logger.info(f"Leitura finalizada. {len(lista_csv)} DataFrames carregados na memória.")
     return lista_csv
 
 def padroniza_colunas(lista_csv):
-     print("Iniciando a padronização das Colunas.")
+     logger.info("Iniciando padronização de colunas...")
      lista_padronizadas = []
 
      for i,df in enumerate(lista_csv, start=1):
@@ -69,11 +83,11 @@ def padroniza_colunas(lista_csv):
           print("Coluna valor_compra removida com sucesso!")
           
           lista_padronizadas.append(df_renomeado)
-          print("Padronização de colunas concluída com sucesso!")
+          logger.info("Padronização de colunas concluída com sucesso.")
      return lista_padronizadas 
 
 def tratar_valores_nulos(lista_colunas):
-    print("Iniciando o tratamento de valores nulos...")
+    logger.info("Iniciando tratamento de valores nulos...")
     lista_nulos_tratados = []
 
     for i, df in enumerate(lista_colunas, start=1):
@@ -92,12 +106,12 @@ def tratar_valores_nulos(lista_colunas):
 
         lista_nulos_tratados.append(df)
 
-    print("Tratamento de nulos concluído com sucesso!")
+    logger.info("Tratamento de nulos finalizado.")
     return lista_nulos_tratados
 
 
 def altera_coluna(lista_padronizadas):
-    print("Inicando a alteração de tipo de coluna")
+    logger.info("Iniciando conversão e tipagem de dados...")
     lista_colunas = []
 
     for i,df in enumerate(lista_padronizadas, start=1):
@@ -111,12 +125,12 @@ def altera_coluna(lista_padronizadas):
             df["cnpj_revenda"] = df["cnpj_revenda"].astype(str)
 
         lista_colunas.append(df)
-    print("Alterações de tipos concluída!")
+    logger.info("Tipagem de dados concluída.")
     return lista_colunas
 
 
 def tratar_textos(lista_colunas):
-    print("Iniciando a normalização de textos")
+    logger.info("Iniciando normalização de campos textuais...")
     lista_final = []
 
     colunas_texto = ['produto', 'municipio', 'estado_sigla', 'bandeira', 'revenda']
@@ -127,54 +141,56 @@ def tratar_textos(lista_colunas):
             if coluna in df.columns:
                 df[coluna] = df[coluna].str.strip().str.upper()
         lista_final.append(df)
-    print("Normalização de textos concluída com sucesso!")
+    logger.info("Normalização de textos concluída.")
     return lista_final
 
 
 def consolidar_camada_silver(lista_final):
+    logger.info("Consolidando DataFrames na Camada Silver...")
     df_silver = pd.concat(lista_final, ignore_index=True)
 
     df_silver["data_processamento"] = datetime.now()
 
-    print(f"Camada Silver consolidada com sucesso! Total de linhas: {len(df_silver)}")
+    logger.info(f"Camada Silver consolidada com sucesso! Total de registros: {len(df_silver):,}")
     return df_silver
 
 def subir_arquivo(df_silver, bucket_nome,client):
     nome_arquivo = "anp_combustiveis_consolidado.parquet"
+    caminho_minio = f"silver/{nome_arquivo}"
 
+    logger.info(f"Salvando DataFrame local em formato Parquet: {nome_arquivo}")
+ 
     df_silver.to_parquet(nome_arquivo, engine='pyarrow', compression='snappy')
 
-    print(f"Subindo {nome_arquivo} para o Minio.")
+    logger.info(f"Enviando '{nome_arquivo}' para o MinIO em '{caminho_minio}'...")
     client.fput_object(
         bucket_nome,
-        f"silver/{nome_arquivo}",
+        caminho_minio,
         nome_arquivo
     )
-    print(f"Arquivo {nome_arquivo} enviado com sucesso para a camada Silver!")
+    logger.info("Upload para a camada Silver concluído com sucesso!")
 
     if os.path.exists(nome_arquivo):
         os.remove(nome_arquivo)
+        logger.info("Arquivo temporário local removido.")
 
-def main():
-   
+def pipeline_transform():
+
+    logger.info("INICIANDO PIPELINE DE TRANSFORMAÇÃO (SILVER)")
+
     client, lista_objetos, bucket_nome = conect_minio()
-
     lista_csv = ler_csv(client, bucket_nome, lista_objetos)
-
     
     lista_padronizada = padroniza_colunas(lista_csv)
     lista_sem_nulos   = tratar_valores_nulos(lista_padronizada)
     lista_tipada      = altera_coluna(lista_sem_nulos)
     lista_final       = tratar_textos(lista_tipada)
-
     
     df_silver = consolidar_camada_silver(lista_final)
-
-    
     subir_arquivo(df_silver, bucket_nome, client)
 
+    logger.info("PIPELINE SILVER FINALIZADO COM SUCESSO!")
+    return df_silver
 
 if __name__ == "__main__":
-    main()
-
-
+    pipeline_transform()

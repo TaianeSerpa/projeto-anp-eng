@@ -1,10 +1,18 @@
 import os
+import logging
 import io
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
 from minio import Minio
 from sqlalchemy import create_engine, text
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 env_path= Path(__file__).parent.parent/'.env'
 load_dotenv(dotenv_path=env_path)
@@ -19,7 +27,7 @@ DATABASE_URI = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NA
 engine = create_engine(DATABASE_URI)
 
 def conect_minio():
-    print("Iniciando a Conexão com o Minio.")
+    logger.info("Iniciando a Conexão com o Minio.")
     client = Minio(
         'localhost:9005',
         access_key= os.getenv("MINIO_ROOT_USER"),
@@ -30,7 +38,7 @@ def conect_minio():
 def ler_parquet_minio(bucket_name: str, object_name: str) -> pd.DataFrame:
 
     client = conect_minio()
-    print(f"Baixando '{object_name}' do bucket '{bucket_name}' no MinIO...")
+    logger.info(f"Baixando '{object_name}' do bucket '{bucket_name}' no MinIO...")
     
     response = client.get_object(bucket_name, object_name)
     data = response.read()
@@ -38,23 +46,24 @@ def ler_parquet_minio(bucket_name: str, object_name: str) -> pd.DataFrame:
     response.release_conn()
     
     df = pd.read_parquet(io.BytesIO(data))
-    print(f"Dados carregados com sucesso! Linhas: {len(df)}")
+    logger.info(f"Dados carregados com sucesso! Linhas: {len(df)}")
     return df
 
 def executar_script_ddl(caminho_sql:str):
-    print(f"Executando script DDL:{caminho_sql}")
+    logger.info(f"Executando script DDL: {caminho_sql}")
     try:
         with open(caminho_sql,"r",encoding="UTF-8") as f:
             comandos_sql = f.read()
 
         with engine.begin() as conexao:
             conexao.execute(text(comandos_sql))
-        print("Tabelas criadas/verificadas com sucesso!")
+        logger.info("Tabelas criadas/verificadas com sucesso!")
     except Exception as e:
-        print(f"Erro ao executar DDL: {e}")
+        logger.error(f"Erro ao executar DDL: {e}")
         raise e
 
 def criar_dimensoes_e_fato(df_prata: pd.DataFrame):
+    logger.info("Iniciando modelagem dimensional (SNOWFLAKE Schema)...")
     df_d_produto = (
         df_prata[["produto", "unidade_medida"]]
         .drop_duplicates()
@@ -110,11 +119,12 @@ def criar_dimensoes_e_fato(df_prata: pd.DataFrame):
     df_d_produto = df_d_produto.rename(columns={"id_produto": "id"})
     df_d_localizacao = df_d_localizacao.rename(columns={"id_localizacao": "id"})
     df_d_posto = df_d_posto.rename(columns={"id_posto": "id"})
+    logger.info("Modelagem dimensional concluída com sucesso.")
     return df_d_produto, df_d_localizacao, df_d_posto, df_f_pesquisa_preco
 
 def carregar_tabela(df: pd.DataFrame, nome_tabela: str):
     try:
-        print(f"Carregando {len(df)} registros na tabela '{nome_tabela}'...")
+        logger.info(f"Carregando {len(df):,} registros na tabela '{nome_tabela}'...")
         df.to_sql (
             name = nome_tabela,
             con= engine,
@@ -122,30 +132,39 @@ def carregar_tabela(df: pd.DataFrame, nome_tabela: str):
             index=False,
             chunksize=1000,
             method="multi" )
-        print(f"Tabela '{nome_tabela}' carregada com sucesso!")
+        logger.info(f"Tabela '{nome_tabela}' carregada com sucesso!")
     except Exception as e:
-        print(f"Erro ao carregar '{nome_tabela}': {e}")
+        logger.error(f"Erro ao carregar '{nome_tabela}': {e}")
         raise e
 
-def pipeline_load(bucket_name: str, object_name: str, caminho_sql: str):
-   
+def pipeline_load(
+    bucket_name: str = "dados-anp",
+    object_name: str = "silver/anp_combustiveis_consolidado.parquet",
+    caminho_sql: str = "sql/create_table.sql"
+):
+
+    logger.info("INICIANDO PIPELINE DE CARGA (GOLD / DW)")
+    
+
     executar_script_ddl(caminho_sql)
-    
-    df_prata = ler_parquet_minio(bucket_name, object_name)
-    
-    dim_produto, dim_localizacao, dim_posto, fato_preco = criar_dimensoes_e_fato(df_prata)
+
    
-    carregar_tabela(dim_produto, "d_produto")
+    df_prata = ler_parquet_minio(bucket_name, object_name)
+
+  
+    dim_produto, dim_localizacao, dim_posto, fato_preco = criar_dimensoes_e_fato(df_prata)
+
+   
     carregar_tabela(dim_localizacao, "d_localizacao")
+    carregar_tabela(dim_produto, "d_produto")
     carregar_tabela(dim_posto, "d_posto")
+
+    
     carregar_tabela(fato_preco, "f_pesquisa_preco")
 
-    print("Pipeline de Carga (Gold) concluído com sucesso!")
-
+    
+    logger.info("PIPELINE GOLD FINALIZADO COM SUCESSO!")
+    
 
 if __name__ == "__main__":
-    PATH_SQL = "sql/create_table.sql"
-    BUCKET_NAME = "dados-anp"
-    OBJECT_NAME = "silver/anp_combustiveis_consolidado.parquet"
-    
-    pipeline_load(BUCKET_NAME, OBJECT_NAME, PATH_SQL)
+    pipeline_load()
